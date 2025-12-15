@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.max
 
 class GameViewModel(private val repository: GameRepository) : ViewModel() {
 
@@ -22,42 +23,80 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     private val _isGameOver = MutableStateFlow(false)
     val isGameOver = _isGameOver.asStateFlow()
 
-
-    private val _timeLeft = MutableStateFlow(100)
+    private val _timeLeft = MutableStateFlow(120)
     val timeLeft = _timeLeft.asStateFlow()
 
+    // --- YENİ: LEVEL TAKİBİ ---
+    private val _currentLevel = MutableStateFlow(1)
+    val currentLevel = _currentLevel.asStateFlow()
+
+    // Level kazanıldı mı yoksa süre mi bitti?
+    private val _isLevelWon = MutableStateFlow(false)
+    val isLevelWon = _isLevelWon.asStateFlow()
+
     private var timerJob: Job? = null
-
     val bestScore = repository.bestScore
-
     private var openCards = mutableListOf<MemoryCard>()
     private var isProcessing = false
 
     init {
-        // ViewModel ilk oluştuğunda oyunu başlatma,
-        // Kullanıcı butona basınca başlatacağız.
+        // Başlangıç beklemede
     }
 
-    fun resetGame() {
-        timerJob?.cancel() // Eski sayacı durdur
+    // --- 1. OYUNU SIFIRDAN BAŞLAT (En Baştan) ---
+    fun restartGame() {
+        _currentLevel.value = 1
+        _score.value = 0
+        startLevel()
+    }
+    // --- YENİ EKLENECEK KISIM: MEVCUT LEVEL'I TEKRARLA ---
+    // Bu fonksiyon skoru ve level sayısını sıfırlamadan sadece kartları ve süreyi yeniler.
+    fun resetCurrentLevel() {
+        startLevel()
+    }
 
-        val emojis = listOf("🚀", "🛸", "🪐", "🌍", "🌕", "⭐", "☄️", "👽", "👾", "🤖")
-        val selectedEmojis = emojis.shuffled().take(8)
+    // --- 2. SONRAKİ LEVEL'A GEÇ (Skor korunur) ---
+    fun advanceToNextLevel() {
+        _currentLevel.value += 1
+        startLevel()
+    }
+
+    // --- ORTAK LEVEL BAŞLATMA FONKSİYONU ---
+    private fun startLevel() {
+        timerJob?.cancel()
+
+        // --- GENİŞLETİLMİŞ EMOJİ HAVUZU (Birbirinden Farklı) ---
+        val allEmojis = listOf(
+            "🚀", "🛸", "🪐", "🌍", "🌕", "⭐", "☄️", "👽", "👾", "🤖",
+            "🦄", "🐲", "🦕", "🐢", "🐬", "🦊", "🐼", "🦁", "🐧", "🦉",
+            "🍕", "🍔", "🍦", "🍩", "🍿", "🌮", "🍒", "🥑", "🧁", "🍪",
+            "⚽", "🏀", "🎮", "🎸", "🎨", "🚗", "✈️", "⚓", "💎", "🎈",
+            "👻", "🎃", "🎁", "👑", "🧩", "📸", "🎧", "💡", "⏰", "🔑",
+            "🔥", "🌈", "❤️", "🍀", "⚡", "❄️", "🌊", "🌵", "🍄", "🍁"
+        )
+
+        // 24 Kart için 12 Çift seçiyoruz
+        val selectedEmojis = allEmojis.shuffled().take(12)
         val gameImages = (selectedEmojis + selectedEmojis).shuffled()
 
         _cards.value = gameImages.mapIndexed { index, emoji ->
             MemoryCard(id = index, emoji = emoji)
         }
-        _score.value = 0
+
+        // Skor ve Level SIFIRLANMAZ, sadece tur verileri sıfırlanır
         _attempts.value = 0
-
-        _timeLeft.value = 100
-
         _isGameOver.value = false
+        _isLevelWon.value = false
         openCards.clear()
         isProcessing = false
 
-        startTimer() // Sayacı başlat
+        // --- ZORLUK MANTIĞI ---
+        // Level 1: 120sn. Her levelde 10sn azalır. Minimum 40sn.
+        val baseTime = 120
+        val timeReduction = (_currentLevel.value - 1) * 10
+        _timeLeft.value = max(40, baseTime - timeReduction)
+
+        startTimer()
     }
 
     private fun startTimer() {
@@ -69,6 +108,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
 
             if (_timeLeft.value == 0) {
                 _isGameOver.value = true
+                _isLevelWon.value = false // Süre bitti, kaybettin
             }
         }
     }
@@ -104,13 +144,16 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                 }
 
                 if (_cards.value.all { it.isMatched }) {
-                    // Bonus Puan: Kalan süre
+                    // Bonus Puan
                     val timeBonus = _timeLeft.value
                     _score.value += timeBonus
 
                     repository.saveBestScore(_score.value)
                     timerJob?.cancel()
                     delay(500)
+
+                    // KAZANDI
+                    _isLevelWon.value = true
                     _isGameOver.value = true
                 }
             } else {

@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -48,7 +49,6 @@ val bgGradient = Brush.verticalGradient(
 fun StartScreen(navController: NavController, viewModel: GameViewModel, bestScore: Int) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 1.1f,
@@ -64,13 +64,13 @@ fun StartScreen(navController: NavController, viewModel: GameViewModel, bestScor
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("🧠", fontSize = 60.sp, modifier = Modifier.scale(scale))
-                    Text("HAFIZA\nOYUNU", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("HAFIZA KARTI\nOYUNU", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     BestScoreCard(bestScore)
                     Spacer(modifier = Modifier.height(24.dp))
-                    StartButton {
-                        viewModel.resetGame()
+                    StartButton(text = "OYUNA BAŞLA") {
+                        viewModel.restartGame() // restartGame olarak düzeltildi
                         navController.navigate("game")
                     }
                 }
@@ -83,8 +83,8 @@ fun StartScreen(navController: NavController, viewModel: GameViewModel, bestScor
                 Spacer(modifier = Modifier.height(32.dp))
                 BestScoreCard(bestScore)
                 Spacer(modifier = Modifier.height(48.dp))
-                StartButton {
-                    viewModel.resetGame()
+                StartButton(text = "OYUNA BAŞLA") {
+                    viewModel.restartGame() // restartGame olarak düzeltildi
                     navController.navigate("game")
                 }
             }
@@ -102,11 +102,10 @@ fun GameScreen(viewModel: GameViewModel, navController: NavController) {
     val attempts by viewModel.attempts.collectAsState()
     val timeLeft by viewModel.timeLeft.collectAsState()
     val isGameOver by viewModel.isGameOver.collectAsState()
+    val currentLevel by viewModel.currentLevel.collectAsState()
 
-    // Standart Android Kontrolü (Artık hatasız çalışacak)
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-
     val columns = if (isLandscape) 8 else 4
     val gridState = rememberLazyGridState()
 
@@ -126,38 +125,45 @@ fun GameScreen(viewModel: GameViewModel, navController: NavController) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight() // İçeriği kadar yer kaplar
+                .wrapContentHeight()
                 .padding(bottom = if (isLandscape) 4.dp else 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Geri Butonu
             IconButton(
-                onClick = { viewModel.resetGame(); navController.popBackStack() },
+                onClick = { viewModel.restartGame(); navController.popBackStack() }, // restartGame olarak düzeltildi
                 modifier = Modifier.background(Color.White.copy(alpha = 0.2f), CircleShape).size(40.dp)
             ) { Icon(Icons.Default.ArrowBack, contentDescription = "Geri", tint = Color.White) }
 
-            // Orta Kısım
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // LEVEL GÖSTERGESİ
+                Surface(
+                    color = Color(0xFFFFD700),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "LEVEL $currentLevel",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black
+                    )
+                }
+
                 TimerDisplay(timeLeft)
-                // Yan ekranda skorlar burada
+
                 if (isLandscape) {
+                    // YATAY MODDA EKSİK OLAN DENEME SAYISI EKLENDİ:
                     CompactInfoChip(icon = "🎯", text = "$attempts")
                     CompactInfoChip(icon = "⭐", text = "$score")
                 }
             }
 
-            // Yeniden Başlat
             IconButton(
-                onClick = { viewModel.resetGame() },
+                onClick = { viewModel.resetCurrentLevel() },
                 modifier = Modifier.background(Color.White.copy(alpha = 0.2f), CircleShape).size(40.dp)
-            ) { Icon(Icons.Default.Refresh, contentDescription = "Yeniden Başlat", tint = Color.White) }
+            ) { Icon(Icons.Default.Refresh, contentDescription = "Sıfırla", tint = Color.White) }
         }
 
-        // --- İKİNCİ SATIR (Sadece Dik Modda) ---
         if (!isLandscape) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -169,12 +175,11 @@ fun GameScreen(viewModel: GameViewModel, navController: NavController) {
             }
         }
 
-        // --- GRID (OYUN ALANI) ---
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns),
             modifier = Modifier
-                .weight(1f) // Kalan alanı doldur
+                .weight(1f)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -192,49 +197,115 @@ fun GameScreen(viewModel: GameViewModel, navController: NavController) {
 // ==========================================
 @Composable
 fun ResultScreen(viewModel: GameViewModel, navController: NavController) {
-    val score by viewModel.score.collectAsState()
-    val attempts by viewModel.attempts.collectAsState()
-    val timeLeft by viewModel.timeLeft.collectAsState()
-    val scrollState = rememberScrollState()
+    // ViewModel'den anlık verileri alıyoruz
+    val currentScore by viewModel.score.collectAsState()
+    val currentIsLevelWon by viewModel.isLevelWon.collectAsState()
+
+    // --- ÇÖZÜM BURADA ---
+    // Ekran ilk açıldığı andaki durumu 'remember' ile sabitliyoruz.
+    // Böylece butona basıp level'i sıfırladığında bu ekran değişmeden kalır (titremez).
+    val score = remember { currentScore }
+    val isLevelWon = remember { currentIsLevelWon }
+
+    val currentLevel by viewModel.currentLevel.collectAsState()
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val scrollState = rememberScrollState()
 
-    val isTimeUp = timeLeft == 0
-    val titleText = if (isTimeUp) "SÜRE BİTTİ!" else "TEBRİKLER!"
-    val iconText = if (isTimeUp) "⌛" else "🎉"
-    val messageText = if (isTimeUp) "Biraz daha hızlı olmalısın." else "Hafızan çok kuvvetli!"
+    val titleText = if (isLevelWon) "SEVİYE TAMAM!" else "OYUN BİTTİ!"
+    val iconText = if (isLevelWon) "🎉" else "⌛"
+    val messageText = if (isLevelWon) "Tebrikler! Sonraki seviyeye geç." else "Süre doldu! Denemeye devam et."
+    val buttonText = if (isLevelWon) "SONRAKİ LEVEL" else "YENİDEN BAŞLA"
+    val buttonColor = if (isLevelWon) Color(0xFF00E676) else Color(0xFFFF5252)
 
-    Box(modifier = Modifier.fillMaxSize().background(bgGradient), contentAlignment = Alignment.Center) {
-        if (isLandscape) {
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().background(bgGradient),
+        contentAlignment = Alignment.Center
+    ) {
+        val isActuallyLandscape = maxWidth > maxHeight
+
+        if (isActuallyLandscape) {
+            // --- YATAY MOD ---
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                // Sol Taraf
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Text(iconText, fontSize = 80.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(titleText, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LevelIndicator(level = currentLevel)
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(messageText, color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, textAlign = TextAlign.Center)
                 }
+
                 Spacer(modifier = Modifier.width(32.dp))
-                Column(modifier = Modifier.weight(1.2f).verticalScroll(scrollState), horizontalAlignment = Alignment.CenterHorizontally) {
-                    ResultScoreCard(score, attempts)
+
+                // Sağ Taraf
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(scrollState),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    ResultScoreCard(score)
                     Spacer(modifier = Modifier.height(24.dp))
-                    ResultButtons(viewModel, navController)
+
+                    StartButton(text = buttonText, color = buttonColor) {
+                        // isLevelWon sabitlendiği için burası güvenli çalışır
+                        if (isLevelWon) viewModel.advanceToNextLevel() else viewModel.restartGame()
+                        navController.navigate("game") { popUpTo("start") }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = { viewModel.restartGame(); navController.navigate("start") }) {
+                        Text("Ana Menüye Dön", color = Color.White.copy(alpha = 0.7f))
+                    }
                 }
             }
         } else {
-            Column(modifier = Modifier.padding(24.dp).verticalScroll(scrollState), horizontalAlignment = Alignment.CenterHorizontally) {
+            // --- DİKEY MOD ---
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .verticalScroll(scrollState),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(iconText, fontSize = 100.sp)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(titleText, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text(titleText, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                LevelIndicator(level = currentLevel)
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(messageText, color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, textAlign = TextAlign.Center)
                 Spacer(modifier = Modifier.height(32.dp))
-                ResultScoreCard(score, attempts)
+
+                ResultScoreCard(score)
                 Spacer(modifier = Modifier.height(32.dp))
-                ResultButtons(viewModel, navController)
+
+                StartButton(text = buttonText, color = buttonColor) {
+                    // isLevelWon sabitlendiği için burası güvenli çalışır
+                    if (isLevelWon) viewModel.advanceToNextLevel() else viewModel.restartGame()
+                    navController.navigate("game") { popUpTo("start") }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                TextButton(onClick = { viewModel.restartGame(); navController.navigate("start") }) {
+                    Text("Ana Menüye Dön", color = Color.White.copy(alpha = 0.7f))
+                }
             }
         }
     }
@@ -243,6 +314,48 @@ fun ResultScreen(viewModel: GameViewModel, navController: NavController) {
 // ==========================================
 // YARDIMCI BİLEŞENLER
 // ==========================================
+
+@Composable
+fun LevelIndicator(level: Int) {
+    Text(
+        text = "BİTEN LEVEL: $level",
+        fontWeight = FontWeight.Bold,
+        fontSize = 20.sp,
+        color = Color(0xFFFFD700),
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+fun ResultScoreCard(score: Int) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(8.dp),
+        modifier = Modifier.fillMaxWidth(0.6f)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "TOPLAM SKOR",
+                color = Color.Gray,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "$score",
+                color = Color(0xFF311B92),
+                fontSize = 48.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+    }
+}
 
 @Composable
 fun TimerDisplay(timeLeft: Int) {
@@ -296,35 +409,9 @@ fun BestScoreCard(score: Int) {
 }
 
 @Composable
-fun StartButton(onClick: () -> Unit) {
-    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)), modifier = Modifier.width(200.dp).height(50.dp)) {
-        Text("OYUNA BAŞLA", fontSize = 18.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-fun ResultScoreCard(score: Int, attempts: Int) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            ResultRow("Toplam Skor", "$score")
-            Divider(modifier = Modifier.padding(vertical = 12.dp))
-            ResultRow("Deneme Sayısı", "$attempts")
-        }
-    }
-}
-
-@Composable
-fun ResultButtons(viewModel: GameViewModel, navController: NavController) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Button(onClick = { viewModel.resetGame(); navController.navigate("game") { popUpTo("start") } }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64FFDA)), modifier = Modifier.width(220.dp).height(50.dp)) {
-            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("YENİDEN OYNA", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        TextButton(onClick = { viewModel.resetGame(); navController.navigate("start") }) {
-            Text("Ana Menüye Dön", color = Color.White.copy(alpha = 0.7f))
-        }
+fun StartButton(text: String, color: Color = Color(0xFF00E5FF), onClick: () -> Unit) {
+    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = color), modifier = Modifier.width(220.dp).height(50.dp)) {
+        Text(text, fontSize = 18.sp, color = Color.Black, fontWeight = FontWeight.Bold)
     }
 }
 
