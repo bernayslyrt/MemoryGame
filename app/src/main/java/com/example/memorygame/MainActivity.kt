@@ -20,30 +20,28 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val navController = rememberNavController()
 
-            // --- ÇÖZÜM BURADA ---
-            // 'remember' yerine 'viewModel' factory kullanıyoruz.
-            // Bu sayede ekran döndüğünde oyun verileri SİLİNMİYOR.
+            // ViewModel Fabrikası - SoundManager eklendi
             val viewModel: GameViewModel = viewModel(
                 factory = object : ViewModelProvider.Factory {
                     override fun <T : ViewModel> create(modelClass: Class<T>): T {
                         val repository = GameRepository(context)
-                        return GameViewModel(repository) as T
+                        val soundManager = SoundManager(context)
+                        return GameViewModel(repository, soundManager) as T
                     }
                 }
             )
 
             val bestScore by viewModel.bestScore.collectAsState(initial = 0)
 
-            NavHost(navController = navController, startDestination = "start") {
+            NavHost(navController = navController, startDestination = "splash") {
+                composable("splash") {
+                    SplashScreen(navController = navController) }
                 composable("start") {
-                    StartScreen(navController = navController, viewModel = viewModel, bestScore = bestScore)
-                }
+                    StartScreen(navController = navController, viewModel = viewModel, bestScore = bestScore) }
                 composable("game") {
-                    GameScreen(viewModel = viewModel, navController = navController)
-                }
+                    GameScreen(viewModel = viewModel, navController = navController) }
                 composable("result") {
-                    ResultScreen(viewModel = viewModel, navController = navController)
-                }
+                    ResultScreen(viewModel = viewModel, navController = navController) }
             }
         }
     }
