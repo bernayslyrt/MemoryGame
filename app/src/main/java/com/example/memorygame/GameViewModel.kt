@@ -50,16 +50,13 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
 
     init {
         loadGameData()
-
     }
-
 
     fun startBackgroundMusic() {
         if (!_isMuted.value) {
             soundManager.playMusic()
         }
     }
-
 
     fun toggleSound() {
         val muted = soundManager.toggleSound()
@@ -94,10 +91,18 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
         }
     }
 
+
+    // levele ilk gelindiğindeki kayıtlı puanla başlamasını sağlar.
     fun resetCurrentLevel() {
-        _isPaused.value = false
-        if (!_isMuted.value) soundManager.playMusic()
-        startLevel()
+        viewModelScope.launch {
+            // DataStore'dan en son kaydedilen skoru geri yükle
+            val savedScr = repository.savedScore.first()
+            _score.value = savedScr
+
+            _isPaused.value = false
+            if (!_isMuted.value) soundManager.playMusic()
+            startLevel()
+        }
     }
 
     fun resumeOrRestartLevel() {
@@ -212,7 +217,7 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
 
             if (card1.emoji == card2.emoji) {
                 _score.value += 50
-                
+
                 soundManager.playSound(R.raw.sfx_match)
 
                 _cards.value = _cards.value.map {
@@ -223,7 +228,6 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
                     timerJob?.cancel()
                     _earnedStars.value = calculateStars(_attempts.value)
                     _isLevelWon.value = true
-
 
                     soundManager.playSound(R.raw.sfx_win)
 
@@ -238,8 +242,9 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
                     _isGameOver.value = true
                 }
             } else {
+                // Puanı düşürürken 0'ın altına inmesin
                 val newScore = _score.value - 20
-                _score.value = if (newScore < 0) 0 else newScore
+                _score.value = max(0, newScore)
 
                 delay(800)
                 _cards.value = _cards.value.map {
