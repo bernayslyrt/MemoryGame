@@ -85,8 +85,12 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
     fun startNewGame() {
         viewModelScope.launch {
             repository.clearProgress()
+            _isGameOver.value = false
+            _isLevelWon.value = false
+            _isPaused.value = false
             _currentLevel.value = 1
             _score.value = 0
+            _attempts.value = 0
             startLevel()
         }
     }
@@ -121,6 +125,11 @@ class GameViewModel(private val repository: GameRepository, private val soundMan
             _currentLevel.value += 1
             saveProgress()
         }
+        // Menüye dönerken bu "bayrakları" indiriyoruz ki karışıklık olmasın
+        _isGameOver.value = false
+        _isLevelWon.value = false
+        _isPaused.value = false
+        timerJob?.cancel()
     }
 
     private fun saveProgress() {
